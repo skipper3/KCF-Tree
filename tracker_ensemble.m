@@ -103,7 +103,7 @@ for frame = 1:numel(img_files),
             model_xf{ii} = xf{ii};
         end
         
-        t=tree(model_alphaf)
+        t=tree(model_alphaf);
         tree_index=1;
     end   
     if frame>1
@@ -128,7 +128,7 @@ for frame = 1:numel(img_files),
                 
                 max=0;
                 father_node=0;
-                
+                father(1)=1;
                 %judge edge between all tracker
                 if frame>=10
                     for i=1:tree_index-1
@@ -156,16 +156,19 @@ for frame = 1:numel(img_files),
                 [pos,response]=predictPosition(feat, pos, indLayers, nweights, cell_size, l1_patch_num, ...
                     model_xf, model_alphaf);
             else for i=1:tree_index
+                    e_alphaf=t.get(i);
                     [e_pos,e_response] = predictPosition(feat, pos, indLayers, nweights, cell_size, l1_patch_num, ...
-                        model_xf, model_alphaf);
-                    alphaf=t.get(father(tree_index));
+                        model_xf, e_alphaf);
+                    p_alphaf=t.get(father(i));
                     [p_pos,p_response] = predictPosition(feat, pos, indLayers, nweights, cell_size, l1_patch_num, ...
-                        model_xf, model_alphaf);
+                        model_xf, p_alphaf);
                     if e_response<p_response
                         weight=e_response;
+                        %weight=1;
                         pos_temp=weight*e_pos;
                     else
                         weight=p_response;
+                        %weight=1;
                         pos_temp=weight*p_pos;
                     end
                     sum_temp=+weight;
@@ -196,10 +199,13 @@ for frame = 1:numel(img_files),
         time = time + toc();
         feat  = extractFeature(im, pos, window_sz, cos_window, indLayers);
         % Model update
-        for i=1:tree_index
-            [model_xf, model_alphaf] = updateModel(feat, yf, interp_factor, lambda, frame, ...
-                model_xf, model_alphaf);
-        end
+%         for i=1:tree_index
+%             [model_xf, model_alphaf] = updateModel(feat, yf, interp_factor, lambda, frame, ...
+%                 model_xf, model_alphaf);
+%         end
+       model_alphaf=t.get(floor(frame/10)+1);
+       [model_xf,model_alphaf] = updateModel(feat,yf,interp_factor,lambda,frame,...
+           model_xf,model_alphaf);
         % Visualization
         if show_visualization,
             box = [pos([2,1]) - target_sz([2,1])/2, target_sz([2,1])];
