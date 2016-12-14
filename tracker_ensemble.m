@@ -105,46 +105,49 @@ for frame = 1:numel(img_files),
         
         t=tree(model_alphaf);
         tree_index=1;
-    end   
+    end
+    
     if frame>1
-            if mod(frame,10)==0
-                feat=extractFeature(im, pos, window_sz, cos_window, indLayers);
-                numLayers = length(feat);
-                xf       = cell(1, numLayers);
-                alphaf   = cell(1, numLayers);
-                for ii=1 : numLayers
-                    xf{ii} = fft2(feat{ii});
-                    kf = sum(xf{ii} .* conj(xf{ii}), 3) / numel(xf{ii});
-                    alphaf{ii} = yf./ (kf+ lambda);   % Fast training
-                end
-                
-                
-                for ii=1:numLayers
-                    model_alphaf{ii} = alphaf{ii};
-                    model_xf{ii} = xf{ii};
-                end
-                
-                tree_index=tree_index+1;%每10帧生成一个新的tracker
-                
-                max=0;
-                father_node=0;
-                father(1)=1;
-                %judge edge between all tracker
-                if frame>=10
-                    for i=1:tree_index-1
-                        alphaf=t.get(i);
-                        [~,max_response] = predictPosition(feat, pos, indLayers, nweights, cell_size, l1_patch_num, ...
-                            model_xf, alphaf);
-                        if max_response>max
-                            max=max_response;
-                            father_node=i;
-                        end
+        if mod(frame,10)==0
+            feat=extractFeature(im, pos, window_sz, cos_window, indLayers);
+            numLayers = length(feat);
+            xf       = cell(1, numLayers);
+            alphaf   = cell(1, numLayers);
+            for ii=1 : numLayers
+                xf{ii} = fft2(feat{ii});
+                kf = sum(xf{ii} .* conj(xf{ii}), 3) / numel(xf{ii});
+                alphaf{ii} = yf./ (kf+ lambda);   % Fast training
+            end
+            
+            
+            for ii=1:numLayers
+                model_alphaf{ii} = alphaf{ii};
+                model_xf{ii} = xf{ii};
+            end
+            
+            tree_index=tree_index+1;%每10帧生成一个新的tracker
+            %%
+            %寻找tracker的父节点
+            max=0;
+            father_node=0;
+            father(1)=1;
+            %judge edge between all tracker
+            %找出之前tracker中对当前帧response最大的作为父节点
+            if frame>=10
+                for i=1:tree_index-1
+                    alphaf=t.get(i);
+                    [p,max_response] = predictPosition(feat, pos, indLayers, nweights, cell_size, l1_patch_num, ...
+                        model_xf, alphaf);
+                    if max_response>max
+                        max=max_response;
+                        father_node=i;
                     end
-                    t=t.addnode(father_node,model_alphaf);
-                    father(tree_index)=father_node;%存储tree_index的父节点，记为father_node
                 end
+                t=t.addnode(father_node,model_alphaf);
+                father(tree_index)=father_node;%存储tree_index的父节点，记为father_node
             end
         end
+        
         %%
         %location estimation%
         feat = extractFeature(im, pos, window_sz, cos_window, indLayers);
@@ -153,7 +156,7 @@ for frame = 1:numel(img_files),
         
         if tree_index<10
             if frame<10
-                [pos,response]=predictPosition(feat, pos, indLayers, nweights, cell_size, l1_patch_num, ...
+                [pos,~]=predictPosition(feat, pos, indLayers, nweights, cell_size, l1_patch_num, ...
                     model_xf, model_alphaf);
             else for i=1:tree_index
                     e_alphaf=t.get(i);
@@ -164,59 +167,56 @@ for frame = 1:numel(img_files),
                         model_xf, p_alphaf);
                     if e_response<p_response
                         weight=e_response;
-                        %weight=1;
-                        pos_temp=weight*e_pos;
+                        pos_wei=weight*e_pos;
                     else
                         weight=p_response;
-                        %weight=1;
-                        pos_temp=weight*p_pos;
+                        pos_wei=weight*p_pos;
                     end
-                    sum_temp=+weight;
-                    pos_temp=+pos_temp;
+                    sum_temp=sum_temp+weight;
+                    pos_temp=pos_temp+pos_wei;
                 end
                 pos=pos_temp/sum_temp;
             end
         else for i=tree_index-9:tree_index
+                e_alphaf=t.get(i);
                 [e_pos,e_response] = predictPosition(feat, pos, indLayers, nweights, cell_size, l1_patch_num, ...
-                    model_xf, model_alphaf);
-                alphaf=t.get(father(tree_index));
+                    model_xf, e_alphaf);
+                p_alphaf=t.get(father(tree_index));
                 [p_pos,p_response] = predictPosition(feat, pos, indLayers, nweights, cell_size, l1_patch_num, ...
-                    model_xf, model_alphaf);
+                    model_xf, p_alphaf);
                 if e_response<p_response
                     weight=e_response;
-                    pos_temp=weight*e_pos;
+                    pos_wei=weight*e_pos;
                 else
                     weight=p_response;
-                    pos_temp=weight*p_pos;
+                    pos_wei=weight*p_pos;
                 end
-                sum_temp=+weight;
-                pos_temp=+pos_temp;
+                sum_temp=sum_temp+weight;
+                pos_temp=pos_temp+pos_wei;
             end
-        pos=pos_temp/sum_temp;    
+            pos=pos_temp/sum_temp;
         end
-        
-        positions(frame,:) =pos;
-        time = time + toc();
-        feat  = extractFeature(im, pos, window_sz, cos_window, indLayers);
-        % Model update
-%         for i=1:tree_index
-%             [model_xf, model_alphaf] = updateModel(feat, yf, interp_factor, lambda, frame, ...
-%                 model_xf, model_alphaf);
-%         end
-       model_alphaf=t.get(floor(frame/10)+1);
-       [model_xf,model_alphaf] = updateModel(feat,yf,interp_factor,lambda,frame,...
-           model_xf,model_alphaf);
-        % Visualization
-        if show_visualization,
-            box = [pos([2,1]) - target_sz([2,1])/2, target_sz([2,1])];
-            stop = update_visualization(frame, box);
-            if stop, break, end  %user pressed Esc, stop early
-            drawnow
-            % 			pause(0.05)  % uncomment to run slower
-        end
-        
-        
- 
+    end
+    
+    
+    
+    feat  = extractFeature(im, pos, window_sz, cos_window, indLayers);
+    model_alphaf=t.get(floor(frame/10)+1);
+    [model_xf,model_alphaf] = updateModel(feat,yf,interp_factor,lambda,frame,...
+        model_xf,model_alphaf);
+    positions(frame,:) =pos;
+    time = time + toc();
+    % Visualization
+    if show_visualization,
+        box = [pos([2,1]) - target_sz([2,1])/2, target_sz([2,1])];
+        stop = update_visualization(frame, box);
+        if stop, break, end  %user pressed Esc, stop early
+        drawnow
+        % 			pause(0.05)  % uncomment to run slower
+    end
+    
+    
+    
 end
 end
 
