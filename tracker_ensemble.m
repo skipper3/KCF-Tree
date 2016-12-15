@@ -109,26 +109,11 @@ for frame = 1:numel(img_files),
     
     if frame>1
         if mod(frame,10)==0
-%             feat=extractFeature(im, pos, window_sz, cos_window, indLayers);
-%             numLayers = length(feat);
-%             xf       = cell(1, numLayers);
-%             alphaf   = cell(1, numLayers);
-%             for ii=1 : numLayers
-%                 xf{ii} = fft2(feat{ii});
-%                 kf = sum(xf{ii} .* conj(xf{ii}), 3) / numel(xf{ii});
-%                 alphaf{ii} = yf./ (kf+ lambda);   % Fast training
-%             end
-%             
-%             
-%             for ii=1:numLayers
-%                 model_alphaf{ii} = alphaf{ii};
-%                 model_xf{ii} = xf{ii};
-%             end
             model_alphaf=t.get(tree_index);%取上一个tracker索引的参数作为下一个索引的参数
             tree_index=tree_index+1;%每10帧生成一个新的tracker
             %%
             %寻找tracker的父节点
-            max=0;
+            max_temp=0;
             father_node=0;
             father(1)=1;
             %judge edge between all tracker
@@ -138,8 +123,8 @@ for frame = 1:numel(img_files),
                     alphaf=t.get(i);
                     [~,max_response] = predictPosition(feat, pos, indLayers, nweights, cell_size, l1_patch_num, ...
                         model_xf, alphaf);
-                    if max_response>max
-                        max=max_response;
+                    if max_response>max_temp
+                        max_temp=max_response;
                         father_node=i;
                     end
                 end
@@ -151,54 +136,51 @@ for frame = 1:numel(img_files),
         %%
         %location estimation%
         feat = extractFeature(im, pos, window_sz, cos_window, indLayers);
-        pos_temp=0;
-        sum_temp=0;
-        
+        %         [a,b,c]=size(feat(1));
+        %         response_temp=zeros(a,b);
+        response_temp=0;
         if tree_index<10
             if frame<10
                 [pos,~]=predictPosition(feat, pos, indLayers, nweights, cell_size, l1_patch_num, ...
                     model_xf, model_alphaf);
             else for i=1:tree_index
-                    e_alphaf=t.get(i);
-                    [e_pos,e_response] = predictPosition(feat, pos, indLayers, nweights, cell_size, l1_patch_num, ...
-                        model_xf, e_alphaf);
-                    p_alphaf=t.get(father(i));
-                    [p_pos,p_response] = predictPosition(feat, pos, indLayers, nweights, cell_size, l1_patch_num, ...
-                        model_xf, p_alphaf);
-                    if e_response<p_response
-                        %weight=e_response;
-                        weight=1;
-                        pos_wei=weight*e_pos;
-                    else
-                        %weight=p_response;
-                        weight=1;
-                        pos_wei=weight*p_pos;
+                    model_alphaf=t.get(i);
+                    
+                    res_layer = zeros([l1_patch_num, length(indLayers)]);
+                    
+                    for ii = 1 : length(indLayers)
+                        zf = fft2(feat{ii});
+                        kzf=sum(zf .* conj(model_xf{ii}), 3) / numel(zf);
+                        
+                        
+                        res_layer(:,:,ii) = real(fftshift(ifft2(model_alphaf{ii} .* kzf)));  %equation for fast detection
                     end
-                    sum_temp=sum_temp+weight;
-                    pos_temp=pos_temp+pos_wei;
-                end
-                pos=pos_temp/sum_temp;
+                    
+                    % Combine responses from multiple layers (see Eqn. 5)
+                    response = sum(bsxfun(@times, res_layer, nweights), 3);
+                   response_temp=response_temp+response;
+                end 
+               
+            [vert_delta, horiz_delta] = find(response_temp == max(response_temp(:)), 1);
+            vert_delta  = vert_delta  - floor(size(zf,1)/2);
+            horiz_delta = horiz_delta - floor(size(zf,2)/2);
+            pos = pos + cell_size * [vert_delta - 1, horiz_delta - 1];
             end
         else for i=tree_index-9:tree_index
-                e_alphaf=t.get(i);
-                [e_pos,e_response] = predictPosition(feat, pos, indLayers, nweights, cell_size, l1_patch_num, ...
-                    model_xf, e_alphaf);
-                p_alphaf=t.get(father(tree_index));
-                [p_pos,p_response] = predictPosition(feat, pos, indLayers, nweights, cell_size, l1_patch_num, ...
-                    model_xf, p_alphaf);
-                if e_response<p_response
-                    %weight=e_response;
-                    weight=1;
-                    pos_wei=weight*e_pos;
-                else
-                    %weight=p_response;
-                    weight=1;
-                    pos_wei=weight*p_pos;
+                model_alphaf=t.get(tree_index);
+                for ii = 1 : length(indLayers)
+                    zf = fft2(feat{ii});
+                    kzf=sum(zf .* conj(model_xf{ii}), 3) / numel(zf);
+                    res_layer(:,:,ii) = real(fftshift(ifft2(model_alphaf{ii} .* kzf)));
                 end
-                sum_temp=sum_temp+weight;
-                pos_temp=pos_temp+pos_wei;
+                response = sum(bsxfun(@times, res_layer, nweights), 3);
+                response_temp=response_temp+response;
             end
-            pos=pos_temp/sum_temp;
+            
+            [vert_delta, horiz_delta] = find(response_temp == max(response_temp(:)), 1);
+            vert_delta  = vert_delta  - floor(size(zf,1)/2);
+            horiz_delta = horiz_delta - floor(size(zf,2)/2);
+            pos = pos + cell_size * [vert_delta - 1, horiz_delta - 1];
         end
     end
     
