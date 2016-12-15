@@ -109,22 +109,22 @@ for frame = 1:numel(img_files),
     
     if frame>1
         if mod(frame,10)==0
-            feat=extractFeature(im, pos, window_sz, cos_window, indLayers);
-            numLayers = length(feat);
-            xf       = cell(1, numLayers);
-            alphaf   = cell(1, numLayers);
-            for ii=1 : numLayers
-                xf{ii} = fft2(feat{ii});
-                kf = sum(xf{ii} .* conj(xf{ii}), 3) / numel(xf{ii});
-                alphaf{ii} = yf./ (kf+ lambda);   % Fast training
-            end
-            
-            
-            for ii=1:numLayers
-                model_alphaf{ii} = alphaf{ii};
-                model_xf{ii} = xf{ii};
-            end
-            
+%             feat=extractFeature(im, pos, window_sz, cos_window, indLayers);
+%             numLayers = length(feat);
+%             xf       = cell(1, numLayers);
+%             alphaf   = cell(1, numLayers);
+%             for ii=1 : numLayers
+%                 xf{ii} = fft2(feat{ii});
+%                 kf = sum(xf{ii} .* conj(xf{ii}), 3) / numel(xf{ii});
+%                 alphaf{ii} = yf./ (kf+ lambda);   % Fast training
+%             end
+%             
+%             
+%             for ii=1:numLayers
+%                 model_alphaf{ii} = alphaf{ii};
+%                 model_xf{ii} = xf{ii};
+%             end
+            model_alphaf=t.get(tree_index);%取上一个tracker索引的参数作为下一个索引的参数
             tree_index=tree_index+1;%每10帧生成一个新的tracker
             %%
             %寻找tracker的父节点
@@ -136,7 +136,7 @@ for frame = 1:numel(img_files),
             if frame>=10
                 for i=1:tree_index-1
                     alphaf=t.get(i);
-                    [p,max_response] = predictPosition(feat, pos, indLayers, nweights, cell_size, l1_patch_num, ...
+                    [~,max_response] = predictPosition(feat, pos, indLayers, nweights, cell_size, l1_patch_num, ...
                         model_xf, alphaf);
                     if max_response>max
                         max=max_response;
@@ -166,10 +166,12 @@ for frame = 1:numel(img_files),
                     [p_pos,p_response] = predictPosition(feat, pos, indLayers, nweights, cell_size, l1_patch_num, ...
                         model_xf, p_alphaf);
                     if e_response<p_response
-                        weight=e_response;
+                        %weight=e_response;
+                        weight=1;
                         pos_wei=weight*e_pos;
                     else
-                        weight=p_response;
+                        %weight=p_response;
+                        weight=1;
                         pos_wei=weight*p_pos;
                     end
                     sum_temp=sum_temp+weight;
@@ -185,10 +187,12 @@ for frame = 1:numel(img_files),
                 [p_pos,p_response] = predictPosition(feat, pos, indLayers, nweights, cell_size, l1_patch_num, ...
                     model_xf, p_alphaf);
                 if e_response<p_response
-                    weight=e_response;
+                    %weight=e_response;
+                    weight=1;
                     pos_wei=weight*e_pos;
                 else
-                    weight=p_response;
+                    %weight=p_response;
+                    weight=1;
                     pos_wei=weight*p_pos;
                 end
                 sum_temp=sum_temp+weight;
@@ -204,6 +208,7 @@ for frame = 1:numel(img_files),
     model_alphaf=t.get(floor(frame/10)+1);
     [model_xf,model_alphaf] = updateModel(feat,yf,interp_factor,lambda,frame,...
         model_xf,model_alphaf);
+    t=t.set(floor(frame/10)+1,model_alphaf);%将更新的model_alphaf回传给原节点
     positions(frame,:) =pos;
     time = time + toc();
     % Visualization
@@ -218,6 +223,7 @@ for frame = 1:numel(img_files),
     
     
 end
+disp(t.tostring);
 end
 
 
