@@ -105,107 +105,139 @@ for frame = 1:numel(img_files),
         
         t=tree(model_alphaf);
         tree_index=1;
+        weight(1)=1;
     end
     
     if frame>1
-        if mod(frame,10)==0
-            model_alphaf=t.get(tree_index);%取上一个tracker索引的参数作为下一个索引的参数
-            tree_index=tree_index+1;%每10帧生成一个新的tracker
-            %%
-            %寻找tracker的父节点
-            max_temp=0;
-            father_node=0;
-            father(1)=1;
-            %judge edge between all tracker
-            %找出之前tracker中对当前帧response最大的作为父节点
-            if frame>=10
-                for i=1:tree_index-1
-                    alphaf=t.get(i);
-                    [~,max_response] = predictPosition(feat, pos, indLayers, nweights, cell_size, l1_patch_num, ...
-                        model_xf, alphaf);
-                    if max_response>max_temp
-                        max_temp=max_response;
-                        father_node=i;
-                    end
-                end
-                t=t.addnode(father_node,model_alphaf);
-                father(tree_index)=father_node;%存储tree_index的父节点，记为father_node
-            end
-        end
+        
         
         %%
         %location estimation%
         feat = extractFeature(im, pos, window_sz, cos_window, indLayers);
         %         [a,b,c]=size(feat(1));
         %         response_temp=zeros(a,b);
+        
         response_temp=0;
         if tree_index<10
-            if frame<10
-                [pos,~]=predictPosition(feat, pos, indLayers, nweights, cell_size, l1_patch_num, ...
-                    model_xf, model_alphaf);
-            else for i=1:tree_index
-                    model_alphaf=t.get(i);
-                    
-                    res_layer = zeros([l1_patch_num, length(indLayers)]);
-                    
-                    for ii = 1 : length(indLayers)
-                        zf = fft2(feat{ii});
-                        kzf=sum(zf .* conj(model_xf{ii}), 3) / numel(zf);
-                        
-                        
-                        res_layer(:,:,ii) = real(fftshift(ifft2(model_alphaf{ii} .* kzf)));  %equation for fast detection
-                    end
-                    
-                    % Combine responses from multiple layers (see Eqn. 5)
-                    response = sum(bsxfun(@times, res_layer, nweights), 3);
-                   response_temp=response_temp+response;
-                end 
-               
-            [vert_delta, horiz_delta] = find(response_temp == max(response_temp(:)), 1);
-            vert_delta  = vert_delta  - floor(size(zf,1)/2);
-            horiz_delta = horiz_delta - floor(size(zf,2)/2);
-            pos = pos + cell_size * [vert_delta - 1, horiz_delta - 1];
-            end
-        else for i=tree_index-9:tree_index
-                model_alphaf=t.get(tree_index);
+            
+            
+            for i=1:tree_index
+                model_alphaf=t.get(i);
+                
+                res_layer = zeros([l1_patch_num, length(indLayers)]);
+                
                 for ii = 1 : length(indLayers)
                     zf = fft2(feat{ii});
                     kzf=sum(zf .* conj(model_xf{ii}), 3) / numel(zf);
-                    res_layer(:,:,ii) = real(fftshift(ifft2(model_alphaf{ii} .* kzf)));
+                    
+                    
+                    res_layer(:,:,ii) = real(fftshift(ifft2(model_alphaf{ii} .* kzf)));  %equation for fast detection
                 end
+                
+                % Combine responses from multiple layers (see Eqn. 5)
                 response = sum(bsxfun(@times, res_layer, nweights), 3);
+                response = response*weight(i);
+                    
+                
                 response_temp=response_temp+response;
             end
             
             [vert_delta, horiz_delta] = find(response_temp == max(response_temp(:)), 1);
+            matrix_r=vert_delta;
+            matrix_c=horiz_delta;
             vert_delta  = vert_delta  - floor(size(zf,1)/2);
             horiz_delta = horiz_delta - floor(size(zf,2)/2);
             pos = pos + cell_size * [vert_delta - 1, horiz_delta - 1];
+      
+    else for i=tree_index-9:tree_index
+            model_alphaf=t.get(tree_index);
+            for ii = 1 : length(indLayers)
+                zf = fft2(feat{ii});
+                kzf=sum(zf .* conj(model_xf{ii}), 3) / numel(zf);
+                res_layer(:,:,ii) = real(fftshift(ifft2(model_alphaf{ii} .* kzf)));
+            end
+            response = sum(bsxfun(@times, res_layer, nweights), 3);
+            response = response*weight(i);
+            response_temp=response_temp+response;
         end
+        
+        [vert_delta, horiz_delta] = find(response_temp == max(response_temp(:)), 1);
+        matrix_r=vert_delta;
+            matrix_c=horiz_delta;
+        vert_delta  = vert_delta  - floor(size(zf,1)/2);
+        horiz_delta = horiz_delta - floor(size(zf,2)/2);
+        pos = pos + cell_size * [vert_delta - 1, horiz_delta - 1];
     end
-    
-    
-    
-    feat  = extractFeature(im, pos, window_sz, cos_window, indLayers);
-    model_alphaf=t.get(floor(frame/10)+1);
-    [model_xf,model_alphaf] = updateModel(feat,yf,interp_factor,lambda,frame,...
-        model_xf,model_alphaf);
-    t=t.set(floor(frame/10)+1,model_alphaf);%将更新的model_alphaf回传给原节点
-    positions(frame,:) =pos;
-    time = time + toc();
-    % Visualization
-    if show_visualization,
-        box = [pos([2,1]) - target_sz([2,1])/2, target_sz([2,1])];
-        stop = update_visualization(frame, box);
-        if stop, break, end  %user pressed Esc, stop early
-        drawnow
-        % 			pause(0.05)  % uncomment to run slower
+    %%
+    if mod(frame,10)==0
+        model_alphaf=t.get(tree_index);%取上一个tracker索引的参数作为下一个索引的参数
+        tree_index=tree_index+1;%每10帧生成一个新的tracker
+        %%
+        %寻找tracker的父节点
+        max_temp=0;
+        father_node=0;
+        father(1)=1;
+        %judge edge between all tracker
+        %找出之前tracker中对当前帧response最大的作为父节点
+        
+            for i=1:tree_index-1
+                alphaf_son=t.get(i);
+                alphaf_par=t.get(father(i));
+                for ii = 1 : length(indLayers)
+                    zf = fft2(feat{ii});
+                    kzf=sum(zf .* conj(model_xf{ii}), 3) / numel(zf);
+                    res_layer(:,:,ii) = real(fftshift(ifft2(alphaf_son{ii} .* kzf)));
+                end
+                response_son = sum(bsxfun(@times, res_layer, nweights), 3);
+                
+                for ii = 1 : length(indLayers)
+                    zf = fft2(feat{ii});
+                    kzf=sum(zf .* conj(model_xf{ii}), 3) / numel(zf);
+                    res_layer(:,:,ii) = real(fftshift(ifft2(alphaf_par{ii} .* kzf)));
+                end
+                response_par = sum(bsxfun(@times, res_layer, nweights), 3);
+                if response_son(matrix_r,matrix_c)>=response_par(matrix_r,matrix_c)
+                     max_response=response_par(matrix_r,matrix_c);
+                else
+                     max_response=response_son(matrix_r,matrix_c);
+                end
+                weight(i)=max_response;
+                
+                if max_response>max_temp
+                    max_temp=max_response;
+                    father_node=i;
+                end
+            end
+        weight(tree_index)=weight(tree_index-1);
+        t=t.addnode(father_node,model_alphaf);
+        father(tree_index)=father_node;%存储tree_index的父节点，记为father_node
     end
-    
-    
-    
 end
-disp(t.tostring);
+
+
+
+
+
+feat  = extractFeature(im, pos, window_sz, cos_window, indLayers);
+model_alphaf=t.get(floor(frame/10+1));
+[model_xf,model_alphaf] = updateModel(feat,yf,interp_factor,lambda,frame,...
+    model_xf,model_alphaf);
+t=t.set(floor(frame/10)+1,model_alphaf);%将更新的model_alphaf回传给原节点
+positions(frame,:) =pos;
+time = time + toc();
+% Visualization
+if show_visualization,
+    box = [pos([2,1]) - target_sz([2,1])/2, target_sz([2,1])];
+    stop = update_visualization(frame, box);
+    if stop, break, end  %user pressed Esc, stop early
+    drawnow
+    % 			pause(0.05)  % uncomment to run slower
+end
+
+
+
+end
+%disp(t.tostring);
 end
 
 
