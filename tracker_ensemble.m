@@ -116,7 +116,7 @@ for frame = 1:numel(img_files),
         feat = extractFeature(im, pos, window_sz, cos_window, indLayers);
         %         [a,b,c]=size(feat(1));
         %         response_temp=zeros(a,b);
-        
+        sum_temp=0;
         response_temp=0;
         if tree_index<10
             
@@ -137,11 +137,11 @@ for frame = 1:numel(img_files),
                 % Combine responses from multiple layers (see Eqn. 5)
                 response = sum(bsxfun(@times, res_layer, nweights), 3);
                 response = response*weight(i);
-                    
+                sum_temp=sum_temp+weight(i);    
                 
                 response_temp=response_temp+response;
             end
-            
+            response_temp=response_temp/sum_temp;
             [vert_delta, horiz_delta] = find(response_temp == max(response_temp(:)), 1);
             matrix_r=vert_delta;
             matrix_c=horiz_delta;
@@ -158,9 +158,10 @@ for frame = 1:numel(img_files),
             end
             response = sum(bsxfun(@times, res_layer, nweights), 3);
             response = response*weight(i);
+            sum_temp=sum_temp+weight(i);
             response_temp=response_temp+response;
         end
-        
+        response_temp=response_temp/sum_temp;
         [vert_delta, horiz_delta] = find(response_temp == max(response_temp(:)), 1);
         matrix_r=vert_delta;
             matrix_c=horiz_delta;
@@ -197,14 +198,14 @@ for frame = 1:numel(img_files),
                 end
                 response_par = sum(bsxfun(@times, res_layer, nweights), 3);
                 if response_son(matrix_r,matrix_c)>=response_par(matrix_r,matrix_c)
-                     max_response=response_par(matrix_r,matrix_c);
-                else
                      max_response=response_son(matrix_r,matrix_c);
+                else
+                     max_response=response_par(matrix_r,matrix_c);
                 end
                 weight(i)=max_response;
                 
-                if max_response>max_temp
-                    max_temp=max_response;
+                if response_son(matrix_r,matrix_c)>max_temp
+                    max_temp=response_son(matrix_r,matrix_c);
                     father_node=i;
                 end
             end
